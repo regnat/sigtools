@@ -390,3 +390,9 @@ def _apply_forwards_to_super(member_names, m_args, m_kwargs, cls):
     for name in member_names:
         setattr(cls, name, fts(cls.__dict__[name]))
     return cls
+
+
+from sigtools import _autoforwards_ast as _autoforwards
+
+
+autoforwards = _autoforwards.autoforwards
