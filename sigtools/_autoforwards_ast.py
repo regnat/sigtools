@@ -20,11 +20,27 @@ class Varargs(object): pass
 class Varkwargs(object): pass
 
 
+class Closure(object):
+    def __init__(self, clv):
+        self.clv = clv
+        self.names = clv.names.copy()
+        self.nonlocals = set()
+
+    def restore(self):
+        save = {k: self.clv.names[k] for k in self.nonlocals}
+        self.clv.names = self.names
+        self.clv.names.update(save)
+        return self.nonlocals
+
+
 class CallListerVisitor(ast.NodeVisitor):
     def __init__(self, func):
         self.func = func
+        self.closures = []
         self.calls = []
         self.names = {}
+        self.in_subdef = False
+        self.tainted_names = set()
         self.varargs = None
         self.varkwargs = None
 
@@ -32,18 +48,19 @@ class CallListerVisitor(ast.NodeVisitor):
         for stmt in func.body:
             self.visit(stmt)
 
-    def __iter__(self):
-        return iter(self.calls)
-
-    def process_parameters(self, args):
+    def process_parameters(self, args, starargs=True):
         for arg in args.args:
             self.names[arg.arg] = Unknown(arg)
         for arg in args.kwonlyargs:
             self.names[arg.arg] = Unknown(arg)
         if args.vararg:
-            self.varargs = self.names[args.vararg.arg] = Varargs()
+            varargs = self.names[args.vararg.arg] = Varargs()
+            if starargs:
+                self.varargs = varargs
         if args.kwarg:
-            self.varkwargs = self.names[args.kwarg.arg] = Varkwargs()
+            varkwargs = self.names[args.kwarg.arg] = Varkwargs()
+            if starargs:
+                self.varkwargs = varkwargs
 
     def resolve_name(self, name):
         if isinstance(name, ast.Name):
@@ -51,17 +68,63 @@ class CallListerVisitor(ast.NodeVisitor):
             return self.names.get(id, Name(id))
         return Unknown(name)
 
-    def visit_Call(self, node):
-        self.calls.append((
-            self.resolve_name(node.func),
-            len(node.args), [kw.arg for kw in node.keywords],
-            self.resolve_name(node.starargs) == self.varargs,
-            self.resolve_name(node.kwargs) == self.varkwargs
-            ))
+    def new_closure(self):
+        self.closures.append(Closure(self))
+
+    def pop_closure(self):
+        self.tainted_names.update(self.closures.pop().restore())
+
+    def visit_FunctionDef(self, node):
+        self.in_subdef = True
+        self.new_closure()
+        self.process_parameters(node.args, starargs=False)
+        body = node.body
+        try:
+            iter(body)
+        except TypeError: # handle lambdas as well
+            body = [node.body]
+        for stmt in body:
+            self.visit(stmt)
+        self.pop_closure()
+        self.in_subdef = False
+
+    visit_Lambda = visit_FunctionDef
+
+    def visit_Nonlocal(self, node):
+        try:
+            clos = self.closures[-1]
+        except IndexError:
+            return
+        for name in node.names:
+            clos.nonlocals.add(name)
 
     def visit_Name(self, node):
         if isinstance(node.ctx, ast.Store):
             self.names[node.id] = Unknown(node)
+
+    def visit_Call(self, node):
+        self.calls.append((
+            self.in_subdef,
+            self.resolve_name(node.func),
+            len(node.args), [kw.arg for kw in node.keywords],
+            self.resolve_name(node.starargs) if node.starargs else None,
+            node.starargs.id if node.starargs else None,
+            self.resolve_name(node.kwargs) if node.kwargs else None,
+            node.kwargs.id if node.kwargs else None
+            ))
+
+    def __iter__(self):
+        for (
+                in_subdef, wrapped, num_args, keywords,
+                varargs, varargs_name, varkwargs, varkwargs_name
+                ) in self.calls:
+            use_varargs = (
+                varargs == self.varargs
+                and not (in_subdef and varargs_name in self.tainted_names))
+            use_varkwargs = (
+                varkwargs == self.varkwargs
+                and not (in_subdef and varkwargs_name in self.tainted_names))
+            yield wrapped, num_args, keywords, use_varargs, use_varkwargs
 
 
 class UnresolvableCall(ValueError):

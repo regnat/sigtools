@@ -105,3 +105,48 @@ class AutoforwardsTests(object):
     @tup('x, y, /, *, kwop')
     def kwo(*args, kwop):
         _wrapped(*args, z=kwop)
+
+    @tup('a, b, y, *, z')
+    def subdef(a, b, *args, **kwargs):
+        def func():
+            _wrapped(42, *args, **kwargs)
+
+    @tup('a, b, y, *, z')
+    def subdef_lambda(a, b, *args, **kwargs):
+        lambda: _wrapped(42, *args, **kwargs)
+
+    @tup('a, b, x, y, *, z')
+    def rebind_subdef(a, b, *args, **kwargs):
+        def func():
+            args = ()
+            kwargs = {}
+            _wrapped(42, *args, **kwargs)
+        _wrapped(*args, **kwargs)
+
+    @tup('a, b, *args, **kwargs')
+    def rebind_subdef_nonlocal(a, b, *args, **kwargs):
+        def func():
+            nonlocal args, kwargs
+            args = ()
+            kwargs = {}
+            _wrapped(42, *args, **kwargs)
+        _wrapped(*args, **kwargs)
+
+    @tup('a, b, x, y, *, z')
+    def rebind_subdef_param(a, b, *args, **kwargs):
+        def func(*args, **kwargs):
+            _wrapped(42, *args, **kwargs)
+        _wrapped(*args, **kwargs)
+
+    @tup('a, b, *args, **kwargs')
+    def rebind_subdef_lambda_param(a, b, *args, **kwargs):
+        lambda *args, **kwargs: _wrapped(*args, **kwargs)
+
+    @tup('a, b, *args, **kwargs')
+    def nonlocal_backchange(a, b, *args, **kwargs):
+        def ret1():
+            _wrapped(*args, **kwargs)
+        def ret2():
+            nonlocal args, kwargs
+            args = ()
+            kwargs = {}
