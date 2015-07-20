@@ -86,8 +86,8 @@ class AutoforwardsTests(object):
     def args(a, b, *args, **kwargs):
         return _wrapped(a, *args, z=b, **kwargs)
 
-    @tup('a, b, *args, y, z') #fixme actually undetermined
-    def using_other_varargs(a, b, *args, **kwargs):
+    @tup('a, b, *, z')
+    def using_other_varargs(a, b, **kwargs):
         return _wrapped(a, *b, **kwargs)
 
     @tup('a, b, *args, **kwargs')
@@ -96,7 +96,17 @@ class AutoforwardsTests(object):
         kwargs = {}
         return _wrapped(*args, **kwargs)
 
-    @tup('*args, x, y, z')
+    @tup('a, b, *args, z')
+    def unknown_args(a, b, *args, **kwargs):
+        args = None
+        return _wrapped(*args, **kwargs)
+
+    @tup('a, b, **kwargs')
+    def unknown_kwargs(a, b, *args, **kwargs):
+        kwargs = None
+        return _wrapped(*args, **kwargs)
+
+    @tup('*args, z')
     def rebind_using_with(*args, **kwargs):
         cm = None
         with cm() as args:

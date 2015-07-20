@@ -33,6 +33,19 @@ class Closure(object):
         return self.nonlocals
 
 
+class Call(object):
+    def __init__(self, in_subdef, callee, num_args, keywords,
+                 varargs, varargs_name, varkwargs, varkwargs_name):
+        self.in_subdef = in_subdef
+        self.callee = callee
+        self.num_args = num_args
+        self.keywords = keywords
+        self.varargs = varargs
+        self.varargs_name = varargs_name
+        self.varkwargs = varkwargs
+        self.varkwargs_name = varkwargs_name
+
+
 class CallListerVisitor(ast.NodeVisitor):
     def __init__(self, func):
         self.func = func
@@ -113,18 +126,37 @@ class CallListerVisitor(ast.NodeVisitor):
             node.kwargs.id if node.kwargs else None
             ))
 
+    def good_starargs(self, starargs, exp_starargs, starargs_name, in_subdef):
+        return (
+            starargs == exp_starargs and not (
+                in_subdef and starargs_name in self.tainted_names
+            ))
+
     def __iter__(self):
         for (
                 in_subdef, wrapped, num_args, keywords,
                 varargs, varargs_name, varkwargs, varkwargs_name
                 ) in self.calls:
-            use_varargs = (
-                varargs == self.varargs
-                and not (in_subdef and varargs_name in self.tainted_names))
-            use_varkwargs = (
-                varkwargs == self.varkwargs
-                and not (in_subdef and varkwargs_name in self.tainted_names))
-            yield wrapped, num_args, keywords, use_varargs, use_varkwargs
+            use_varargs = False
+            use_varkwargs = False
+            hide_args = False
+            hide_kwargs = False
+            if self.good_starargs(varargs, self.varargs,
+                                  varargs_name, in_subdef):
+                use_varargs = True
+            elif varargs:
+                hide_args = True
+            #todo same for varkwargs
+            if self.good_starargs(varkwargs, self.varkwargs,
+                                  varkwargs_name, in_subdef):
+                use_varkwargs = True
+            elif varkwargs:
+                hide_kwargs = True
+            yield (
+                wrapped, num_args, keywords,
+                use_varargs, use_varkwargs,
+                hide_args, hide_kwargs
+                )
 
 
 class UnresolvableCall(ValueError):
@@ -132,7 +164,10 @@ class UnresolvableCall(ValueError):
 
 
 def forward_signatures(func, calls):
-    for wrapped, num_args, keywords, use_varargs, use_varkwargs in calls:
+    for (
+            wrapped, num_args, keywords,
+            use_varargs, use_varkwargs,
+            hide_args, hide_kwargs) in calls:
         if not (use_varargs or use_varkwargs):
             continue
         if isinstance(wrapped, Name):
@@ -145,6 +180,7 @@ def forward_signatures(func, calls):
         else:
             raise UnresolvableCall(wrapped)
         yield forwards(func, wrapped_func, num_args, *keywords,
+                       hide_args=hide_args, hide_kwargs=hide_kwargs,
                        use_varargs=use_varargs, use_varkwargs=use_varkwargs)
 
 
